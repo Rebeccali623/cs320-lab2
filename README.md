@@ -1,1 +1,3 @@
-# cs320-lab2
+# Great Solutions Inc.
+
+We can't solve anything!
