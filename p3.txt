@@ -1,0 +1,116 @@
+import os, zipfile, time
+import pandas as pd
+from bs4 import BeautifulSoup
+from selenium.common.exceptions import NoSuchElementException
+
+class GraphScraper:
+    def __init__(self):
+        self.visited = set()
+        self.BFSorder = []
+        self.DFSorder = []
+
+    def go(self, node):
+        raise Exception("must be overridden in sub classes -- don't change me here!")
+    
+    def dfs_search(self, node):
+        if node in self.visited:
+            return
+        self.visited.add(node)
+
+        for child in self.go(node):
+            self.dfs_search(child)
+
+    def bfs_search(self, node):
+        # the first node to explore is the starting point
+        todo = [node]
+        self.visited.add(node)
+
+        # keep looping while there are unexplored nodes
+        while len(todo) > 0:
+            curr = todo.pop(0) # pop from beginning
+
+            for child in self.go(curr):
+                if not child in self.visited:
+                    todo.append(child)
+                    self.visited.add(child)
+
+class FileScraper(GraphScraper):
+    def __init__(self):
+        super().__init__()
+        if not os.path.exists("Files"):
+            with zipfile.ZipFile("files.zip") as zf:
+                zf.extractall()
+
+    def go(self, node):
+        with open(f"Files/{node}.txt") as f:
+            lines = list(f)
+        self.BFSorder.append(lines[2].split()[1])
+        self.DFSorder.append(lines[3].split()[1])
+        return lines[1].split()
+    
+class WebScraper(GraphScraper):
+    # required
+    def __init__(self, driver=None):
+        super().__init__()
+        self.driver = driver
+
+    def go(self, url=None):
+        self.driver.get(url)
+        try:
+            btn = self.driver.find_element_by_id("DFS")
+            btn.click()
+            self.DFSorder.append(btn.text)
+        except NoSuchElementException:
+            pass
+        try:
+            btn = self.driver.find_element_by_id("BFS")
+            btn.click()
+            self.BFSorder.append(btn.text)
+        except NoSuchElementException:
+            pass
+
+        links = self.driver.find_elements_by_tag_name("a")
+        return [link.get_attribute("href") for link in links]
+
+    # required
+    def dfs_pass(self, start_url):
+        self.DFSorder = []
+        self.visited = set()
+        self.dfs_search(start_url)
+        return "".join(self.DFSorder)
+
+    # required
+    def bfs_pass(self, start_url):
+        self.BFSorder = []
+        self.visited = set()
+        self.bfs_search(start_url)
+        return "".join(self.BFSorder)
+
+    def protected_df(self, url, password):
+        self.go(url)
+        pw = self.driver.find_element_by_id("password-input")
+        btn = self.driver.find_element_by_id("attempt-button")
+        pw.clear()
+        pw.send_keys(password)
+        before = self.driver.current_url
+
+        # wait for page transition                                                                                            
+        btn.click()
+        while self.driver.current_url == before:
+            time.sleep(0.1)
+
+        before = 0
+        while True:
+            trs = len(self.driver.find_elements_by_tag_name("tr"))
+            if trs == before:
+                break
+            before = trs
+
+            try:
+                more = self.driver.find_element_by_id("more-locations-button")
+                more.click()
+            except NoSuchElementException:
+                pass
+            time.sleep(0.1)
+
+        return pd.read_html(self.driver.page_source)[0]    
